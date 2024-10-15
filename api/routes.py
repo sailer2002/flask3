@@ -11,8 +11,10 @@ import re
 
 router = APIRouter()
 
-# 移除这行
-# binance_ops = BinanceOperations(get_binance_client)
+# 添加根目录路由
+@router.get("/")
+async def root():
+    return {"message": "Hello World"}
 
 # 添加一个新的依赖函数
 def get_binance_ops(is_test: bool = False):
