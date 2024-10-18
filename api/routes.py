@@ -1,42 +1,37 @@
-from fastapi import APIRouter, HTTPException, Depends, Request
+from fastapi import APIRouter, HTTPException, Depends
 from binance.exceptions import BinanceAPIException
 from api.models import TradingSignal
 from api.binance_operations import BinanceOperations
 from api.dependencies import create_binance_client
 from api.logger import logger
-import requests
 import os
 from decimal import Decimal
-import re
+
 
 router = APIRouter()
-
-# 添加根目录路由
-@router.get("/")
-async def root():
-    return {"message": "Hello World"}
-
-# 添加一个新的依赖函数
-def get_binance_ops(is_test: bool = False):
+OrderType = 1
+def get_binance_ops(is_test: bool = True):
     return BinanceOperations(create_binance_client)
 
 # 添加一个新函数来获取杠杆值
 def get_leverage():
-    return int(os.getenv('LEVERAGE', '3'))  # 默认值为3
+    return int(os.getenv('LEVERAGE', '1'))  # 默认值为3
 
 # 更新 create_trade 函数的签名
 @router.post("/trade")
 async def create_trade(signal: TradingSignal, binance_ops: BinanceOperations = Depends(get_binance_ops)):
+    if OrderType == 1:
+        order_type = 'MARKET'
+    else:
+        order_type = 'LIMIT'
     try:
         logger.info(f"收到交易信号: {signal}")
         
         # 获取当前持仓信息
         current_position = binance_ops.get_positions(signal.symbol)
         logger.info(f"当前持仓: {current_position}")
-        
         # 获取环境变量中的杠杆倍数
         env_leverage = get_leverage()
-        
         # 解析新策略仓位
         new_position_size = Decimal(str(signal.position_size))
         
@@ -60,7 +55,7 @@ async def create_trade(signal: TradingSignal, binance_ops: BinanceOperations = D
                         logger.info(f"已将杠杆倍数从 {current_leverage} 调整为 {env_leverage}")
                     
                     if new_position_size == 0:
-                        return {"消息": f"{'模拟' if signal.is_test else '实盘'}交易执行成功 - 平仓", "订单": simplify_order(close_order)}
+                        return {"消息": f"交易执行成功 - 平仓", "订单": simplify_order(close_order)}
             else:
                 logger.info("当前无持仓")
                 # 如果当前无持仓但杠杆不一致，调整杠杆倍数
@@ -86,11 +81,11 @@ async def create_trade(signal: TradingSignal, binance_ops: BinanceOperations = D
             
             direction = 'BUY' if new_position_size > 0 else 'SELL'
             logger.info(f"开仓: {signal.symbol} {direction} {quantity}, 杠杆: {env_leverage}")
-            order = binance_ops.create_order(signal.symbol, direction, quantity, env_leverage)
+            order = binance_ops.create_order(signal.symbol, direction, quantity, env_leverage, order_type)
             simplified_order = simplify_order(order)
             logger.info(f"订单结果: {simplified_order}")
             
-            return {"消息": f"{'模拟' if signal.is_test else '实盘'}交易执行成功", "订单": simplified_order}
+            return {"消息": f"交易执行成功", "订单": simplified_order}
         else:
             logger.info("当前持仓方向与新策略仓位方向一致，无需操作")
             return {"消息": "当前持仓方向与新策略仓位方向一致，无需操作"}
@@ -102,45 +97,6 @@ async def create_trade(signal: TradingSignal, binance_ops: BinanceOperations = D
         logger.error(f"意外错误: {str(e)}")
         raise HTTPException(status_code=500, detail=str(e))
     
-# 更新 webhook 函数的签名
-@router.post('/webhook')
-async def webhook(request: Request, binance_ops: BinanceOperations = Depends(get_binance_ops)):
-    try:
-        payload = (await request.body()).decode('utf-8')
-        logger.info(f"收到 Webhook 请求: {payload}")
-
-        # 解析请求内容
-        symbol_match = re.search(r'成交(\w+)。', payload)
-        position_match = re.search(r'新策略仓位([-]?\d+(\.\d+)?)', payload)
-
-        if not symbol_match or not position_match:
-            raise ValueError("无法从消息中提取必要信息")
-
-        symbol = symbol_match.group(1)
-        new_position_size = Decimal(position_match.group(1))
-
-        # 判断是否为测试
-        is_test = '测试' in payload
-
-        # 创建 TradingSignal 对象
-        signal = TradingSignal(
-            symbol=symbol,
-            direction='BUY' if new_position_size > 0 else 'SELL',
-            is_test=is_test,
-            position_size=float(new_position_size),  # 使用绝对值
-        )
-
-        # 调用 create_trade 函数
-        result = await create_trade(signal, binance_ops)
-        return result
-
-    except ValueError as e:
-        logger.error(f"解析 Webhook 请求时发生错误: {str(e)}")
-        raise HTTPException(status_code=400, detail=str(e))
-    except Exception as e:
-        logger.error(f"处理 Webhook 请求时发生意外错误: {str(e)}")
-        raise HTTPException(status_code=500, detail="内部服务器错误")
-
 def simplify_order(order):
     return {
         'symbol': order['symbol'],

@@ -79,19 +79,36 @@ class BinanceOperations:
             raise
 
     @retry_on_network_error()
-    def create_order(self, symbol: str, side: str, quantity: Decimal, leverage: int):
+    def create_order(self, symbol: str, side: str, quantity: Decimal, leverage: int, order_type: str = 'MARKET'):
         client = self.get_binance_client()
         try:
             # 设置杠杆
             client.futures_change_leverage(symbol=symbol, leverage=leverage)
             
+            # 准备订单参数
+            order_params = {
+                'symbol': symbol,
+                'side': side,
+                'type': order_type,
+                'quantity': float(quantity)
+            }
+            
+            # 如果是限价单，获取对手价并设置价格
+            if order_type == 'LIMIT':
+
+                depth = client.futures_order_book(symbol=symbol)
+                if side == 'BUY':
+                    # 买单使用卖一价
+                    price = Decimal(depth['asks'][0][0])
+                else:
+                    # 卖单使用买一价
+                    price = Decimal(depth['bids'][0][0])
+                
+                order_params['price'] = float(price)
+                order_params['timeInForce'] = 'GTC'  # 设置订单有效期为"Good Till Cancel"
+            
             # 创建订单
-            order = client.futures_create_order(
-                symbol=symbol,
-                side=side,
-                type='MARKET',
-                quantity=float(quantity)
-            )
+            order = client.futures_create_order(**order_params)
             
             # 获取完整的订单信息
             order_info = client.futures_get_order(symbol=symbol, orderId=order['orderId'])
@@ -146,3 +163,6 @@ class BinanceOperations:
         client = self.get_binance_client()
         symbol_info = client.futures_exchange_info()
         return next(s for s in symbol_info['symbols'] if s['symbol'] == symbol)
+
+
+
