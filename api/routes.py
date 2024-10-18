@@ -87,8 +87,9 @@ async def create_trade(signal: TradingSignal, binance_ops: BinanceOperations = D
             
             return {"消息": f"交易执行成功", "订单": simplified_order}
         else:
-            logger.info("当前持仓方向与新策略仓位方向一致，无需操作")
-            return {"消息": "当前持仓方向与新策略仓位方向一致，无需操作"}
+            usdt_balance = binance_ops.get_usdt_balance()
+            logger.info(f"当前持仓方向与新策略仓位方向一致，无需操作。当前USDT余额: {usdt_balance}")
+            return {"消息": f"当前持仓方向与新策略仓位方向一致，无需操作。当前USDT余额: {usdt_balance}"}
         
     except BinanceAPIException as e:
         logger.error(f"币安 API 异常: {str(e)}")
