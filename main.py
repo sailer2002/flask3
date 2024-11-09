@@ -6,6 +6,7 @@ from api.models import TradingSignal
 from api.logger import logger
 import re, uvicorn
 from decimal import Decimal
+import os
 
 app = FastAPI()
 
